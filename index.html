@@ -1,0 +1,2367 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>奇幻接龍大師 | Mystic Solitaire</title>
+  <style>
+    /* ==========================================================================
+       1. 設計系統與主題變數 (Design Tokens & Themes)
+       ========================================================================== */
+    :root {
+      --bg-primary: #0b4f32;
+      --bg-secondary: #062f1d;
+      --bg-accent: #147a4f;
+      --felt-glow: rgba(34, 197, 94, 0.22);
+      --gold: #f5c542;
+      --gold-dark: #b8860b;
+      --panel-bg: rgba(7, 28, 19, 0.84);
+      --panel-border: rgba(245, 197, 66, 0.35);
+      --text-main: #f8fafc;
+      --text-muted: #cbd5e1;
+      --card-back-1: #1e3a8a;
+      --card-back-2: #3b82f6;
+      --card-back-accent: #f5c542;
+      --slot-bg: rgba(0, 0, 0, 0.24);
+      --slot-border: rgba(255, 255, 255, 0.22);
+
+      /* 動態撲克牌尺寸 (由 JS 根據螢幕寬高精準計算，並設有 CSS 預設安全值) */
+      --card-w: 84px;
+      --card-h: 118px;
+      --card-radius: 9px;
+      --col-gap: 12px;
+      --stack-offset-down: 18px;
+      --stack-offset-up: 28px;
+    }
+
+    /* 主題 2: 深夜黑金 Midnight Gold */
+    body.theme-midnight {
+      --bg-primary: #141417;
+      --bg-secondary: #09090b;
+      --bg-accent: #27272a;
+      --felt-glow: rgba(245, 197, 66, 0.16);
+      --panel-bg: rgba(18, 18, 22, 0.9);
+      --panel-border: rgba(245, 197, 66, 0.5);
+      --card-back-1: #18181b;
+      --card-back-2: #3f3f46;
+      --card-back-accent: #fbbf24;
+    }
+
+    /* 主題 3: 賽博霓虹 Cyberpunk Neon */
+    body.theme-cyber {
+      --bg-primary: #1a0b2e;
+      --bg-secondary: #0b0416;
+      --bg-accent: #3b0764;
+      --felt-glow: rgba(236, 72, 153, 0.25);
+      --gold: #38bdf8;
+      --gold-dark: #0284c7;
+      --panel-bg: rgba(15, 7, 32, 0.88);
+      --panel-border: rgba(56, 189, 248, 0.5);
+      --card-back-1: #4c1d95;
+      --card-back-2: #db2777;
+      --card-back-accent: #22d3ee;
+    }
+
+    /* 主題 4: 櫻花和風 Sakura Kyoto */
+    body.theme-sakura {
+      --bg-primary: #4a192c;
+      --bg-secondary: #260b15;
+      --bg-accent: #702442;
+      --felt-glow: rgba(244, 114, 182, 0.26);
+      --gold: #fbcfe8;
+      --gold-dark: #f472b6;
+      --panel-bg: rgba(42, 12, 24, 0.88);
+      --panel-border: rgba(251, 207, 232, 0.45);
+      --card-back-1: #831843;
+      --card-back-2: #be185d;
+      --card-back-accent: #fce7f3;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang HK", "Microsoft JhengHei", "Noto Sans TC", sans-serif;
+      color: var(--text-main);
+      background-color: var(--bg-secondary);
+      touch-action: none; /* 防止手機滑動拖牌時觸發網頁捲動 */
+    }
+
+    /* 賭場高級絨布質感背景 (純 CSS 漸層 + 內嵌 SVG 噪點) */
+    body {
+      background-image:
+        radial-gradient(circle at 50% 25%, var(--felt-glow), transparent 65%),
+        radial-gradient(ellipse at center, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+      display: flex;
+      flex-direction: column;
+      transition: background 0.4s ease;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.045;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+      z-index: 0;
+    }
+
+    /* ==========================================================================
+       2. 頂部資訊欄與狀態提示 (Header & HUD)
+       ========================================================================== */
+    .top-bar {
+      position: relative;
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 14px;
+      background: var(--panel-bg);
+      border-bottom: 1px solid var(--panel-border);
+      backdrop-filter: blur(8px);
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-title {
+      font-size: clamp(15px, 2.2vw, 19px);
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      background: linear-gradient(135deg, #fff 20%, var(--gold) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .mode-badge {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: rgba(245, 197, 66, 0.18);
+      border: 1px solid var(--gold);
+      color: var(--gold);
+      white-space: nowrap;
+    }
+
+    .stats-group {
+      display: flex;
+      align-items: center;
+      gap: clamp(8px, 2vw, 18px);
+    }
+
+    .stat-pill {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: clamp(12px, 1.8vw, 14px);
+      font-weight: 600;
+    }
+
+    .stat-pill span.val {
+      color: var(--gold);
+      font-variant-numeric: tabular-nums;
+      font-weight: 800;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .icon-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      color: var(--text-main);
+      border-radius: 10px;
+      padding: 6px 10px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.15s ease;
+    }
+
+    .icon-btn:hover {
+      background: rgba(255, 255, 255, 0.2);
+      border-color: var(--gold);
+      transform: translateY(-1px);
+    }
+
+    .icon-btn:active {
+      transform: scale(0.96);
+    }
+
+    /* 魔法特殊規則橫幅 (當觸發奇怪規則時顯示) */
+    .modifier-banner {
+      position: relative;
+      z-index: 18;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 5px 12px;
+      background: linear-gradient(90deg, rgba(147, 51, 234, 0.85), rgba(219, 39, 119, 0.85), rgba(147, 51, 234, 0.85));
+      border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+      font-size: 13px;
+      font-weight: 700;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6);
+      animation: pulseGlow 2s infinite;
+    }
+
+    .modifier-banner.active {
+      display: flex;
+    }
+
+    @keyframes pulseGlow {
+      0%, 100% { filter: brightness(1); }
+      50% { filter: brightness(1.18); }
+    }
+
+    /* ==========================================================================
+       3. 遊戲主桌面 (Game Board Layout)
+       ========================================================================== */
+    .board-wrapper {
+      position: relative;
+      z-index: 10;
+      flex: 1;
+      width: 100%;
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 10px 10px 4px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      overflow: hidden;
+    }
+
+    /* 上半部：牌庫區 (Stock & Waste) + 目標收集區 (Foundations) */
+    .top-row {
+      display: grid;
+      grid-template-columns: repeat(7, var(--card-w));
+      justify-content: center;
+      gap: var(--col-gap);
+      height: var(--card-h);
+      flex-shrink: 0;
+    }
+
+    /* 下半部：7 欄接龍區 (Tableau) */
+    .tableau-row {
+      display: grid;
+      grid-template-columns: repeat(7, var(--card-w));
+      justify-content: center;
+      gap: var(--col-gap);
+      flex: 1;
+      position: relative;
+    }
+
+    /* 卡槽底座 (Empty Slots) */
+    .slot {
+      width: var(--card-w);
+      height: var(--card-h);
+      border-radius: var(--card-radius);
+      background: var(--slot-bg);
+      border: 2px dashed var(--slot-border);
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: border-color 0.2s, background 0.2s, transform 0.15s;
+    }
+
+    .slot.foundation-slot::after {
+      content: attr(data-suit-icon);
+      font-size: calc(var(--card-w) * 0.42);
+      opacity: 0.25;
+      pointer-events: none;
+    }
+
+    .slot.stock-slot {
+      cursor: pointer;
+    }
+
+    .slot.stock-slot:hover {
+      border-color: var(--gold);
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .slot.highlight-target {
+      border-color: var(--gold) !important;
+      border-style: solid !important;
+      background: rgba(245, 197, 66, 0.2) !important;
+      box-shadow: 0 0 15px rgba(245, 197, 66, 0.45);
+    }
+
+    .tableau-col {
+      width: var(--card-w);
+      height: 100%;
+      position: relative;
+    }
+
+    .tableau-col .empty-col-base {
+      width: var(--card-w);
+      height: var(--card-h);
+      border-radius: var(--card-radius);
+      background: var(--slot-bg);
+      border: 2px dashed rgba(255, 255, 255, 0.14);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: rgba(255,255,255,0.22);
+      font-weight: 800;
+      font-size: calc(var(--card-w) * 0.28);
+    }
+
+    /* ==========================================================================
+       4. 撲克牌視覺設計與 3D 效果 (Playing Cards)
+       ========================================================================== */
+    .card {
+      position: absolute;
+      width: var(--card-w);
+      height: var(--card-h);
+      border-radius: var(--card-radius);
+      cursor: pointer;
+      transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.2, 1), top 0.18s ease, left 0.18s ease, box-shadow 0.18s ease;
+      box-shadow: 0 3px 8px rgba(0, 0, 0, 0.42), 0 1px 2px rgba(0, 0, 0, 0.3);
+      will-change: transform, top, left;
+      background: #ffffff;
+      overflow: hidden;
+    }
+
+    .card.face-up {
+      background: linear-gradient(160deg, #ffffff 0%, #f4f6f9 100%);
+      border: 1px solid #cbd5e1;
+    }
+
+    /* 萬能牌 (Joker) 特殊閃耀外觀 */
+    .card.is-joker {
+      background: linear-gradient(135deg, #fef08a 0%, #fbcfe8 50%, #bae6fd 100%);
+      border: 2px solid #f59e0b;
+    }
+
+    /* 牌背精緻幾何花紋 (純 CSS 實現) */
+    .card.face-down {
+      background-color: var(--card-back-1);
+      border: 2px solid #f8fafc;
+      background-image:
+        radial-gradient(circle at 50% 50%, transparent 28%, rgba(255,255,255,0.12) 29%, rgba(255,255,255,0.12) 32%, transparent 33%),
+        repeating-linear-gradient(45deg, rgba(255,255,255,0.07) 0px, rgba(255,255,255,0.07) 4px, transparent 4px, transparent 8px),
+        repeating-linear-gradient(-45deg, rgba(255,255,255,0.07) 0px, rgba(255,255,255,0.07) 4px, transparent 4px, transparent 8px),
+        linear-gradient(135deg, var(--card-back-1), var(--card-back-2));
+    }
+
+    .card.face-down::after {
+      content: "";
+      position: absolute;
+      inset: 5px;
+      border-radius: calc(var(--card-radius) - 4px);
+      border: 1px solid var(--card-back-accent);
+      opacity: 0.65;
+      pointer-events: none;
+    }
+
+    /* 透視眼 X-Ray 效果：讓牌背變半透明並隱約顯示牌面 */
+    .card.face-down.xray-peek {
+      opacity: 0.85;
+      background: rgba(30, 41, 59, 0.82) !important;
+      border-color: #38bdf8;
+      box-shadow: 0 0 12px rgba(56, 189, 248, 0.75);
+    }
+
+    .xray-label {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      font-size: calc(var(--card-w) * 0.28);
+      text-shadow: 0 1px 4px #000;
+      pointer-events: none;
+    }
+
+    /* 炸彈定時模式標記 */
+    .bomb-badge {
+      position: absolute;
+      bottom: 4px;
+      right: 4px;
+      background: radial-gradient(circle, #ef4444, #991b1b);
+      color: #fff;
+      border: 1.5px solid #fef08a;
+      border-radius: 999px;
+      padding: 1px 6px;
+      font-size: 11px;
+      font-weight: 900;
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.6);
+      z-index: 5;
+      animation: bombPulse 1s infinite alternate;
+    }
+
+    @keyframes bombPulse {
+      from { transform: scale(1); }
+      to { transform: scale(1.1); }
+    }
+
+    /* 選中與懸停高亮 */
+    .card.selected {
+      transform: translateY(-7px) scale(1.03);
+      box-shadow: 0 0 0 3px var(--gold), 0 12px 20px rgba(0, 0, 0, 0.6);
+      z-index: 90 !important;
+    }
+
+    .card.hint-glow {
+      animation: hintBounce 0.75s ease-in-out infinite alternate;
+      box-shadow: 0 0 0 3px #38bdf8, 0 0 20px #38bdf8;
+    }
+
+    @keyframes hintBounce {
+      from { transform: translateY(0); }
+      to { transform: translateY(-8px); }
+    }
+
+    .card.swap-candidate {
+      box-shadow: 0 0 0 3px #e879f9, 0 0 16px #e879f9;
+      animation: pulseGlow 0.8s infinite;
+    }
+
+    .card.dragging {
+      transition: none !important;
+      pointer-events: none;
+      box-shadow: 0 18px 32px rgba(0, 0, 0, 0.65);
+      z-index: 9999 !important;
+    }
+
+    /* ==========================================================================
+       5. 底部道具技能與控制列 (Bottom Power-up & Action Dock)
+       ========================================================================== */
+    .bottom-dock {
+      position: relative;
+      z-index: 20;
+      background: var(--panel-bg);
+      border-top: 1px solid var(--panel-border);
+      backdrop-filter: blur(10px);
+      padding: 6px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .dock-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .action-btn {
+      background: linear-gradient(180deg, rgba(255,255,255,0.14), rgba(255,255,255,0.05));
+      border: 1px solid rgba(255,255,255,0.22);
+      color: #fff;
+      padding: 6px 11px;
+      border-radius: 10px;
+      font-size: clamp(11px, 1.7vw, 13px);
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+
+    .action-btn:hover:not(:disabled) {
+      border-color: var(--gold);
+      background: rgba(245, 197, 66, 0.2);
+      transform: translateY(-1px);
+    }
+
+    .action-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .skill-btn {
+      position: relative;
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.9), rgba(15, 23, 42, 0.95));
+      border: 1px solid rgba(245, 197, 66, 0.45);
+      color: #f8fafc;
+      padding: 5px 10px;
+      border-radius: 10px;
+      font-size: clamp(11px, 1.6vw, 12.5px);
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: all 0.15s;
+    }
+
+    .skill-btn:hover:not(:disabled) {
+      border-color: #fde047;
+      box-shadow: 0 0 12px rgba(245, 197, 66, 0.35);
+      transform: translateY(-2px);
+    }
+
+    .skill-btn.active-skill {
+      background: linear-gradient(135deg, #9333ea, #db2777);
+      border-color: #fff;
+      box-shadow: 0 0 15px rgba(219, 39, 119, 0.7);
+    }
+
+    .skill-cost {
+      background: rgba(245, 197, 66, 0.22);
+      color: var(--gold);
+      padding: 1px 5px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .auto-complete-btn {
+      background: linear-gradient(135deg, #eab308, #d97706);
+      color: #111827;
+      border: none;
+      font-weight: 900;
+      animation: pulseGlow 1.2s infinite;
+    }
+
+    /* ==========================================================================
+       6. 彈出視窗與勝利煙花特效 (Modals & Toast & Canvas)
+       ========================================================================== */
+    .toast-msg {
+      position: fixed;
+      top: 62px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-20px);
+      background: rgba(15, 23, 42, 0.94);
+      border: 1px solid var(--gold);
+      color: #fff;
+      padding: 8px 18px;
+      border-radius: 999px;
+      font-size: 13.5px;
+      font-weight: 700;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.55);
+      z-index: 5000;
+      opacity: 0;
+      pointer-events: none;
+      transition: all 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+      white-space: nowrap;
+    }
+
+    .toast-msg.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.72);
+      backdrop-filter: blur(6px);
+      z-index: 3000;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 16px;
+    }
+
+    .modal-backdrop.open {
+      display: flex;
+    }
+
+    .modal-card {
+      background: linear-gradient(165deg, #111827 0%, #090d16 100%);
+      border: 1px solid var(--gold);
+      border-radius: 18px;
+      width: 100%;
+      max-width: 480px;
+      max-height: 90vh;
+      overflow-y: auto;
+      padding: 22px;
+      box-shadow: 0 25px 50px rgba(0, 0, 0, 0.8);
+      color: #f8fafc;
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .modal-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--gold);
+    }
+
+    .mode-grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .mode-option {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1.5px solid rgba(255, 255, 255, 0.14);
+      border-radius: 12px;
+      padding: 12px 14px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.15s;
+    }
+
+    .mode-option:hover, .mode-option.selected {
+      background: rgba(245, 197, 66, 0.14);
+      border-color: var(--gold);
+    }
+
+    .mode-option-title {
+      font-size: 15px;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .mode-option-desc {
+      font-size: 12.5px;
+      color: #cbd5e1;
+      line-height: 1.45;
+    }
+
+    .theme-selector {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 18px;
+    }
+
+    .theme-chip {
+      padding: 9px 12px;
+      border-radius: 10px;
+      border: 1.5px solid rgba(255,255,255,0.18);
+      background: rgba(255,255,255,0.06);
+      color: #fff;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .theme-chip.selected {
+      border-color: var(--gold);
+      background: rgba(245, 197, 66, 0.2);
+    }
+
+    .primary-cta {
+      width: 100%;
+      padding: 12px;
+      border-radius: 12px;
+      border: none;
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      color: #090d16;
+      font-size: 16px;
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 6px 18px rgba(245, 158, 11, 0.4);
+      transition: transform 0.15s;
+    }
+
+    .primary-cta:hover {
+      transform: translateY(-1px);
+    }
+
+    /* 勝利瀑布物理特效 Canvas */
+    #victory-canvas {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 2500;
+      display: none;
+    }
+
+    /* 手機窄螢幕微調 */
+    @media (max-width: 640px) {
+      .top-bar {
+        padding: 6px 8px;
+      }
+      .brand-title {
+        font-size: 14px;
+      }
+      .stat-pill {
+        padding: 3px 7px;
+        font-size: 11.5px;
+      }
+      .bottom-dock {
+        padding: 5px 6px;
+        justify-content: center;
+      }
+      .skill-btn, .action-btn {
+        padding: 5px 8px;
+        font-size: 11.5px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 頂部導航與統計資訊 -->
+  <header class="top-bar">
+    <div class="brand">
+      <span style="font-size: 20px;">🃏</span>
+      <span class="brand-title">奇幻接龍大師</span>
+      <span class="mode-badge" id="ui-mode-badge">經典抽1張</span>
+    </div>
+
+    <div class="stats-group">
+      <div class="stat-pill" title="透過收牌獲得金幣，可用於施放奇幻技能！">
+        🪙 <span class="val" id="ui-coins">30</span>
+      </div>
+      <div class="stat-pill">
+        🏆 <span class="val" id="ui-score">0</span>
+      </div>
+      <div class="stat-pill">
+        👣 <span class="val" id="ui-moves">0</span>
+      </div>
+      <div class="stat-pill">
+        ⏱️ <span class="val" id="ui-timer">00:00</span>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <button class="icon-btn" id="btn-sound" title="開關音效">🔊</button>
+      <button class="icon-btn" id="btn-rules" title="玩法與奇幻規則說明">📖 規則</button>
+      <button class="icon-btn" id="btn-new-game" style="border-color: var(--gold); color: var(--gold);">🎮 新局 / 模式</button>
+    </div>
+  </header>
+
+  <!-- 魔法模式特殊狀態橫幅 -->
+  <div class="modifier-banner" id="modifier-banner">
+    <span id="modifier-icon">✨</span>
+    <span id="modifier-text">魔法輪盤啟動中！</span>
+    <span id="modifier-timer" style="background: rgba(0,0,0,0.4); padding: 1px 8px; border-radius: 99px; font-size: 12px;"></span>
+  </div>
+
+  <!-- 遊戲主牌桌 -->
+  <main class="board-wrapper" id="board-wrapper">
+    <!-- 上半排：發牌堆(0)、棄牌堆(1)、間隔(2)、四個花色收集區(3,4,5,6) -->
+    <section class="top-row" id="top-row">
+      <div class="slot stock-slot" id="slot-stock" title="點擊發牌"></div>
+      <div class="slot" id="slot-waste" style="border-style: solid; border-color: rgba(255,255,255,0.1);"></div>
+      <div style="pointer-events: none;"></div>
+      <div class="slot foundation-slot" id="slot-f-0" data-f-idx="0" data-suit-icon="♠"></div>
+      <div class="slot foundation-slot" id="slot-f-1" data-f-idx="1" data-suit-icon="♥"></div>
+      <div class="slot foundation-slot" id="slot-f-2" data-f-idx="2" data-suit-icon="♣"></div>
+      <div class="slot foundation-slot" id="slot-f-3" data-f-idx="3" data-suit-icon="♦"></div>
+    </section>
+
+    <!-- 下半排：7 欄接龍區 -->
+    <section class="tableau-row" id="tableau-row">
+      <div class="tableau-col" id="col-0" data-col="0"><div class="empty-col-base">K</div></div>
+      <div class="tableau-col" id="col-1" data-col="1"><div class="empty-col-base">K</div></div>
+      <div class="tableau-col" id="col-2" data-col="2"><div class="empty-col-base">K</div></div>
+      <div class="tableau-col" id="col-3" data-col="3"><div class="empty-col-base">K</div></div>
+      <div class="tableau-col" id="col-4" data-col="4"><div class="empty-col-base">K</div></div>
+      <div class="tableau-col" id="col-5" data-col="5"><div class="empty-col-base">K</div></div>
+      <div class="tableau-col" id="col-6" data-col="6"><div class="empty-col-base">K</div></div>
+    </section>
+  </main>
+
+  <!-- 底部道具技能與基礎操作列 -->
+  <footer class="bottom-dock">
+    <div class="dock-group">
+      <button class="action-btn" id="btn-undo" disabled>↩️ 悔棋</button>
+      <button class="action-btn" id="btn-hint">💡 提示</button>
+      <button class="action-btn auto-complete-btn" id="btn-auto" style="display: none;">⚡ 一鍵自動收牌</button>
+    </div>
+
+    <div class="dock-group">
+      <button class="skill-btn" id="skill-xray" title="透視所有蓋住的牌 5 秒">
+        👁️ 透視眼 <span class="skill-cost">15🪙</span>
+      </button>
+      <button class="skill-btn" id="skill-magnet" title="自動從任何位置吸取一張可收入目標區的牌">
+        🧲 磁鐵吸牌 <span class="skill-cost">25🪙</span>
+      </button>
+      <button class="skill-btn" id="skill-swap" title="點選牌桌上任意兩張已翻開的牌互換位置">
+        🌀 乾坤大挪移 <span class="skill-cost">20🪙</span>
+      </button>
+      <button class="skill-btn" id="skill-roulette" title="立即轉動魔法輪盤，隨機觸發狂野規則或召喚萬能 Joker">
+        🎲 魔法輪盤 <span class="skill-cost">15🪙</span>
+      </button>
+    </div>
+  </footer>
+
+  <!-- 浮動提示訊息 -->
+  <div class="toast-msg" id="toast-msg">提示訊息</div>
+
+  <!-- 勝利瀑布物理畫布 -->
+  <canvas id="victory-canvas"></canvas>
+
+  <!-- 模式選擇與主題設定視窗 -->
+  <div class="modal-backdrop" id="modal-setup">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-title">🎮 選擇玩法模式與牌桌風格</span>
+        <button class="icon-btn" id="btn-close-setup">✕</button>
+      </div>
+
+      <div style="font-size: 13px; font-weight: 700; color: var(--gold); margin-bottom: 8px;">1. 選擇奇幻玩法模式：</div>
+      <div class="mode-grid" id="mode-list">
+        <div class="mode-option selected" data-mode="classic1">
+          <div class="mode-option-title">
+            <span>🃏 經典模式 (抽 1 張)</span>
+            <span style="font-size: 11px; color: #4ade80;">輕鬆休閒</span>
+          </div>
+          <div class="mode-option-desc">傳統克朗代克接龍，每次從牌庫翻 1 張牌，支援金幣道具技能！</div>
+        </div>
+
+        <div class="mode-option" data-mode="classic3">
+          <div class="mode-option-title">
+            <span>🔥 賭場進階 (抽 3 張)</span>
+            <span style="font-size: 11px; color: #facc15;">經典挑戰</span>
+          </div>
+          <div class="mode-option-desc">每次翻 3 張牌，考驗牌序規劃與道具運用策略，收牌獲得雙倍金幣！</div>
+        </div>
+
+        <div class="mode-option" data-mode="chaos">
+          <div class="mode-option-title">
+            <span>🌀 魔法輪盤狂想曲 (奇怪玩法)</span>
+            <span style="font-size: 11px; color: #e879f9;">爆笑刺激</span>
+          </div>
+          <div class="mode-option-desc">每走 12 步自動觸發隨機魔法規則：「色盲狂歡（紅黑不限）」、「重力反轉（可升序疊牌）」、「萬能 Joker 降臨」、「全場透視眼」！</div>
+        </div>
+
+        <div class="mode-option" data-mode="bomb">
+          <div class="mode-option-title">
+            <span>💣 拆彈專家模式 (奇怪玩法)</span>
+            <span style="font-size: 11px; color: #f87171;">緊張心跳</span>
+          </div>
+          <div class="mode-option-desc">牌堆中潛伏定時炸彈牌！翻開後開始倒數步數，必須在歸零前將其移走或收入目標區拆除，否則會把牌炸回洗牌堆！</div>
+        </div>
+      </div>
+
+      <div style="font-size: 13px; font-weight: 700; color: var(--gold); margin-bottom: 8px;">2. 切換牌桌主題：</div>
+      <div class="theme-selector" id="theme-list">
+        <div class="theme-chip selected" data-theme="default">🟢 經典翡翠綠</div>
+        <div class="theme-chip" data-theme="midnight">🟡 深夜黑金</div>
+        <div class="theme-chip" data-theme="cyber">🟣 賽博霓虹</div>
+        <div class="theme-chip" data-theme="sakura">🌸 櫻花和風</div>
+      </div>
+
+      <button class="primary-cta" id="btn-start-selected">🚀 開始新牌局</button>
+    </div>
+  </div>
+
+  <!-- 規則與統計視窗 -->
+  <div class="modal-backdrop" id="modal-rules">
+    <div class="modal-card">
+      <div class="modal-header">
+        <span class="modal-title">📖 玩法指南與戰績統計</span>
+        <button class="icon-btn" id="btn-close-rules">✕</button>
+      </div>
+      <div style="font-size: 13.5px; line-height: 1.65; color: #e2e8f0; display: flex; flex-direction: column; gap: 10px;">
+        <p><strong>🎯 基本接龍規則：</strong><br>將所有 52 張撲克牌依花色從 <strong>A → 2 → ... → K</strong> 收入右上角 4 個目標區。下方 7 欄接龍區需以<strong>紅黑相間、點數遞減</strong>排列，空欄僅可放置 <strong>K</strong>（或萬能 Joker）。</p>
+        <p><strong>📱 跨裝置直覺操作：</strong><br>• <strong>電腦 / 手機通用：</strong>可直接按住拖曳整疊牌，亦支援「點選起手牌 → 再點目標位置」輕鬆移動。<br>• <strong>雙擊 / 點擊已選牌：</strong>自動飛往右上角目標區。</p>
+        <p><strong>🪄 奇幻技能系統 (賺金幣放招)：</strong><br>每當成功將牌收入目標區或翻開新牌，即可獲得金幣 🪙：<br>
+        • <strong>👁️ 透視眼 (15🪙)：</strong>看穿所有蓋住的底牌 5 秒。<br>
+        • <strong>🧲 磁鐵吸牌 (25🪙)：</strong>自動從全場吸出下一張可收入目標區的關鍵牌。<br>
+        • <strong>🌀 乾坤大挪移 (20🪙)：</strong>點選牌桌上任意兩張已翻開的牌互換位置！<br>
+        • <strong>🎲 魔法輪盤 (15🪙)：</strong>隨時召喚狂野規則或萬能 🃏 Joker 牌。</p>
+        <div style="background: rgba(255,255,255,0.06); padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);">
+          <div style="font-weight: 800; color: var(--gold); margin-bottom: 4px;">📊 本機歷史戰績 (離線儲存)</div>
+          <div id="stats-summary" style="font-size: 13px;">勝場：0 場 | 最高分：0 | 最快通關：--:--</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 勝利慶祝視窗 -->
+  <div class="modal-backdrop" id="modal-victory">
+    <div class="modal-card" style="text-align: center;">
+      <div style="font-size: 54px; margin-bottom: 6px;">👑</div>
+      <h2 style="font-size: 26px; font-weight: 900; color: var(--gold); margin-bottom: 8px;">恭喜通關！精彩絕倫！</h2>
+      <p id="victory-stats-text" style="font-size: 14px; color: #cbd5e1; margin-bottom: 20px; line-height: 1.6;"></p>
+      <button class="primary-cta" id="btn-victory-new">🎉 再來一局</button>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * ==========================================================================
+     * 奇幻接龍大師 (Mystic Solitaire) - 完整離線單檔核心引擎
+     * 包含：Web Audio 音效合成器、精緻 SVG 牌面生成器、遊戲狀態機、多模式奇怪規則、
+     * 跨裝置觸控與滑鼠拖曳系統、勝利撲克牌瀑布物理引擎。
+     * ==========================================================================
+     */
+
+    /* --------------------------------------------------------------------------
+       1. Web Audio API 離線音效合成器 (無需任何外部 mp3/wav 檔案)
+       -------------------------------------------------------------------------- */
+    class SoundFX {
+      constructor() {
+        this.ctx = null;
+        this.muted = false;
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (AudioCtx) this.ctx = new AudioCtx();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      playTone(freq, type, duration, vol = 0.12, slideFreq = null) {
+        if (this.muted) return;
+        try {
+          this.init();
+          if (!this.ctx) return;
+          const now = this.ctx.currentTime;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = type;
+          osc.frequency.setValueAtTime(freq, now);
+          if (slideFreq) {
+            osc.frequency.exponentialRampToValueAtTime(slideFreq, now + duration);
+          }
+          gain.gain.setValueAtTime(vol, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(now);
+          osc.stop(now + duration);
+        } catch (e) { /* 忽略瀏覽器自動播放限制錯誤 */ }
+      }
+
+      flip() {
+        this.playTone(320, 'triangle', 0.08, 0.1, 640);
+      }
+
+      place() {
+        this.playTone(220, 'sine', 0.09, 0.14, 140);
+      }
+
+      foundation(combo = 1) {
+        const base = 440 + Math.min(combo, 12) * 35;
+        this.playTone(base, 'sine', 0.16, 0.14, base * 1.25);
+        setTimeout(() => this.playTone(base * 1.5, 'triangle', 0.2, 0.1), 55);
+      }
+
+      magic() {
+        const notes = [523.25, 659.25, 783.99, 1046.5];
+        notes.forEach((f, idx) => {
+          setTimeout(() => this.playTone(f, 'sine', 0.22, 0.11), idx * 55);
+        });
+      }
+
+      error() {
+        this.playTone(150, 'sawtooth', 0.16, 0.09, 105);
+      }
+
+      explosion() {
+        this.playTone(110, 'sawtooth', 0.45, 0.22, 32);
+      }
+
+      win() {
+        const melody = [523.25, 659.25, 783.99, 1046.5, 783.99, 1046.5];
+        melody.forEach((f, i) => {
+          setTimeout(() => this.playTone(f, 'triangle', 0.28, 0.15), i * 110);
+        });
+      }
+    }
+
+    const sfx = new SoundFX();
+
+    /* --------------------------------------------------------------------------
+       2. 撲克牌常數與精緻內嵌 SVG 牌面繪製器
+       -------------------------------------------------------------------------- */
+    const SUITS = [
+      { id: 'spades', symbol: '♠', color: 'black', hex: '#1e293b', name: '黑桃' },
+      { id: 'hearts', symbol: '♥', color: 'red', hex: '#dc2626', name: '紅心' },
+      { id: 'clubs', symbol: '♣', color: 'black', hex: '#1e293b', name: '梅花' },
+      { id: 'diamonds', symbol: '♦', color: 'red', hex: '#dc2626', name: '方塊' }
+    ];
+
+    const RANKS = [
+      { val: 1, label: 'A' }, { val: 2, label: '2' }, { val: 3, label: '3' },
+      { val: 4, label: '4' }, { val: 5, label: '5' }, { val: 6, label: '6' },
+      { val: 7, label: '7' }, { val: 8, label: '8' }, { val: 9, label: '9' },
+      { val: 10, label: '10' }, { val: 11, label: 'J' }, { val: 12, label: 'Q' },
+      { val: 13, label: 'K' }
+    ];
+
+    /**
+     * 生成高解析度內嵌 SVG 撲克牌面 (含 J/Q/K 宮廷皇冠插畫與萬能 Joker 藝術圖案)
+     */
+    function buildCardFaceSVG(card) {
+      if (card.isJoker) {
+        return `
+          <svg viewBox="0 0 100 140" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+            <rect x="4" y="4" width="92" height="132" rx="7" fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="4 2"/>
+            <text x="12" y="23" font-size="15" font-weight="900" fill="#b45309">★</text>
+            <text x="88" y="128" font-size="15" font-weight="900" fill="#b45309" text-anchor="end">★</text>
+            <circle cx="50" cy="64" r="26" fill="#fef3c7" stroke="#f59e0b" stroke-width="2.5"/>
+            <text x="50" y="73" font-size="30" text-anchor="middle">🃏</text>
+            <text x="50" y="108" font-size="13" font-weight="900" fill="#92400e" text-anchor="middle" letter-spacing="1">JOKER</text>
+            <text x="50" y="121" font-size="9" font-weight="700" fill="#b45309" text-anchor="middle">萬能百搭牌</text>
+          </svg>
+        `;
+      }
+
+      const suit = SUITS[card.suit];
+      const rankLabel = RANKS[card.rank - 1].label;
+      const color = suit.hex;
+      const isCourt = card.rank >= 11;
+
+      let centerArt = '';
+      if (isCourt) {
+        const crownEmoji = card.rank === 13 ? '👑' : (card.rank === 12 ? '👸' : '⚔️');
+        const titleText = card.rank === 13 ? 'KING' : (card.rank === 12 ? 'QUEEN' : 'JACK');
+        centerArt = `
+          <rect x="20" y="26" width="60" height="88" rx="6" fill="${color}" fill-opacity="0.07" stroke="${color}" stroke-width="1.2" stroke-opacity="0.35"/>
+          <text x="50" y="68" font-size="32" text-anchor="middle">${crownEmoji}</text>
+          <text x="50" y="93" font-size="22" font-weight="900" fill="${color}" text-anchor="middle">${suit.symbol}</text>
+          <text x="50" y="108" font-size="8.5" font-weight="800" fill="${color}" fill-opacity="0.75" text-anchor="middle" letter-spacing="1.5">${titleText}</text>
+        `;
+      } else if (card.rank === 1) {
+        centerArt = `
+          <circle cx="50" cy="70" r="24" fill="${color}" fill-opacity="0.08"/>
+          <text x="50" y="84" font-size="44" fill="${color}" text-anchor="middle">${suit.symbol}</text>
+        `;
+      } else {
+        centerArt = `
+          <text x="50" y="82" font-size="38" fill="${color}" text-anchor="middle">${suit.symbol}</text>
+        `;
+      }
+
+      return `
+        <svg viewBox="0 0 100 140" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+          <!-- 左上角點數與花色 -->
+          <text x="14" y="23" font-size="18" font-weight="900" fill="${color}" text-anchor="middle" font-family="Arial, sans-serif">${rankLabel}</text>
+          <text x="14" y="39" font-size="16" fill="${color}" text-anchor="middle">${suit.symbol}</text>
+
+          <!-- 右上角迷你花色 (方便疊牌時一眼辨識) -->
+          <text x="86" y="22" font-size="14" fill="${color}" fill-opacity="0.85" text-anchor="middle">${suit.symbol}</text>
+
+          <!-- 中央圖騰 -->
+          ${centerArt}
+
+          <!-- 右下角倒轉點數與花色 -->
+          <g transform="rotate(180 86 116)">
+            <text x="86" y="114" font-size="18" font-weight="900" fill="${color}" text-anchor="middle" font-family="Arial, sans-serif">${rankLabel}</text>
+            <text x="86" y="130" font-size="16" fill="${color}" text-anchor="middle">${suit.symbol}</text>
+          </g>
+        </svg>
+      `;
+    }
+
+    /* --------------------------------------------------------------------------
+       3. 遊戲核心狀態與規則配置 (Game State & Config)
+       -------------------------------------------------------------------------- */
+    const state = {
+      mode: 'classic1',      // 'classic1' | 'classic3' | 'chaos' | 'bomb'
+      theme: 'default',
+      stock: [],             // 發牌堆
+      waste: [],             // 棄牌堆
+      foundations: [[], [], [], []], // 4 個目標區
+      tableau: [[], [], [], [], [], [], []], // 7 欄接龍區
+
+      score: 0,
+      coins: 30,             // 初始贈送 30 金幣讓玩家體驗技能
+      moves: 0,
+      seconds: 0,
+      timerInterval: null,
+      foundationCombo: 0,
+
+      history: [],           // 悔棋堆疊
+      selected: null,        // 點選模式下的選中狀態 { source, colIdx, cardIdx }
+      swapMode: false,       // 乾坤大挪移選牌中
+      swapFirstCard: null,   // 乾坤大挪移第一張牌
+
+      // 魔法輪盤特殊規則狀態
+      activeModifier: null,  // 'colorblind' | 'gravity' | 'xray' | null
+      modifierMovesLeft: 0,
+      xrayTimer: null,
+      isVictory: false
+    };
+
+    const MODE_LABELS = {
+      classic1: '經典抽1張',
+      classic3: '賭場抽3張',
+      chaos: '🌀魔法狂想',
+      bomb: '💣拆彈專家'
+    };
+
+    /* --------------------------------------------------------------------------
+       4. 響應式版面尺寸動態計算 (確保桌面與手機直橫屏完美比例)
+       -------------------------------------------------------------------------- */
+    function updateResponsiveCardMetrics() {
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      const root = document.documentElement;
+
+      // 橫向計算：7 欄 + 左右邊距 + 6 個欄間距
+      const horizontalPadding = vw < 500 ? 12 : 28;
+      const gap = vw < 420 ? 4 : (vw < 768 ? 8 : 14);
+      const maxCardWByWidth = Math.floor((vw - horizontalPadding - gap * 6) / 7);
+
+      // 縱向計算：預留頂部 HUD、底部 Dock 及下方疊牌空間
+      const availableH = vh - 125;
+      const maxCardWByHeight = Math.floor((availableH * 0.25) / 1.4);
+
+      const cardW = Math.max(40, Math.min(104, maxCardWByWidth, maxCardWByHeight));
+      const cardH = Math.round(cardW * 1.4);
+
+      root.style.setProperty('--card-w', `${cardW}px`);
+      root.style.setProperty('--card-h', `${cardH}px`);
+      root.style.setProperty('--col-gap', `${gap}px`);
+      root.style.setProperty('--card-radius', `${Math.max(5, Math.round(cardW * 0.1))}px`);
+      root.style.setProperty('--stack-offset-down', `${Math.max(11, Math.round(cardH * 0.14))}px`);
+      root.style.setProperty('--stack-offset-up', `${Math.max(20, Math.round(cardH * 0.25))}px`);
+
+      if (state.tableau[0].length > 0 || state.stock.length > 0 || state.waste.length > 0) {
+        renderAll();
+      }
+    }
+
+    window.addEventListener('resize', updateResponsiveCardMetrics);
+
+    /* --------------------------------------------------------------------------
+       5. 牌局初始化與發牌邏輯
+       -------------------------------------------------------------------------- */
+    function createDeck() {
+      const deck = [];
+      let uid = 1;
+      for (let s = 0; s < 4; s++) {
+        for (let r = 1; r <= 13; r++) {
+          deck.push({
+            id: `c_${uid++}`,
+            suit: s,
+            rank: r,
+            faceUp: false,
+            isJoker: false,
+            bombTimer: null
+          });
+        }
+      }
+      // Fisher-Yates 洗牌演算法
+      for (let i = deck.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [deck[i], deck[j]] = [deck[j], deck[i]];
+      }
+      return deck;
+    }
+
+    function startNewGame(mode = state.mode) {
+      stopVictoryAnimation();
+      state.mode = mode;
+      state.stock = [];
+      state.waste = [];
+      state.foundations = [[], [], [], []];
+      state.tableau = [[], [], [], [], [], [], []];
+      state.score = 0;
+      state.coins = 30;
+      state.moves = 0;
+      state.seconds = 0;
+      state.foundationCombo = 0;
+      state.history = [];
+      state.selected = null;
+      state.swapMode = false;
+      state.swapFirstCard = null;
+      state.activeModifier = null;
+      state.modifierMovesLeft = 0;
+      state.isVictory = false;
+
+      if (state.xrayTimer) clearTimeout(state.xrayTimer);
+      updateModifierBanner();
+
+      const deck = createDeck();
+
+      // 拆彈專家模式：在部分牌上安裝倒數炸彈
+      if (state.mode === 'bomb') {
+        let bombsPlaced = 0;
+        for (let i = 0; i < deck.length && bombsPlaced < 6; i++) {
+          if (deck[i].rank >= 3 && deck[i].rank <= 11) {
+            deck[i].bombTimer = 18 + Math.floor(Math.random() * 8);
+            bombsPlaced++;
+          }
+        }
+      }
+
+      // 發牌至 7 欄接龍區 (第 i 欄發 i+1 張，最上面一張翻開)
+      for (let col = 0; col < 7; col++) {
+        for (let row = 0; row <= col; row++) {
+          const card = deck.pop();
+          if (row === col) card.faceUp = true;
+          state.tableau[col].push(card);
+        }
+      }
+
+      // 剩餘牌放入發牌堆
+      state.stock = deck;
+
+      // 重置計時器
+      if (state.timerInterval) clearInterval(state.timerInterval);
+      state.timerInterval = setInterval(() => {
+        if (!state.isVictory) {
+          state.seconds++;
+          updateHUD();
+        }
+      }, 1000);
+
+      document.getElementById('ui-mode-badge').textContent = MODE_LABELS[state.mode];
+      sfx.magic();
+      renderAll();
+      updateHUD();
+
+      if (state.mode === 'chaos') {
+        showToast('🌀 魔法狂想模式：每 12 步觸發隨機奇幻規則！');
+      } else if (state.mode === 'bomb') {
+        showToast('💣 拆彈專家模式：小心牌面上的倒數計時炸彈！');
+      }
+    }
+
+    /* --------------------------------------------------------------------------
+       6. 規則驗證引擎 (支援經典規則與魔法奇怪規則)
+       -------------------------------------------------------------------------- */
+    function isRed(suitIdx) {
+      return suitIdx === 1 || suitIdx === 3;
+    }
+
+    /**
+     * 檢查是否可將 card 移動到指定目標區 (foundationIdx)
+     */
+    function canMoveToFoundation(card, fIdx) {
+      if (!card) return false;
+      const pile = state.foundations[fIdx];
+
+      // 萬能 Joker 牌可作為任何花色的下一張牌！
+      if (card.isJoker) {
+        return pile.length < 13;
+      }
+
+      if (card.suit !== fIdx) return false;
+      if (pile.length === 0) return card.rank === 1;
+      return card.rank === pile.length + 1;
+    }
+
+    /**
+     * 檢查是否可將 movingCard 疊放到接龍欄的 targetCard 上
+     */
+    function canMoveToTableau(movingCard, targetCol) {
+      const colPile = state.tableau[targetCol];
+
+      // 空欄規則：允許 K 或 萬能 Joker
+      if (colPile.length === 0) {
+        return movingCard.rank === 13 || movingCard.isJoker;
+      }
+
+      const topCard = colPile[colPile.length - 1];
+      if (!topCard.faceUp) return false;
+
+      // 若任一方是萬能 Joker，無條件允許疊放！
+      if (movingCard.isJoker || topCard.isJoker) return true;
+
+      // 1. 顏色規則檢查 (若啟動「色盲狂歡」則忽略紅黑限制)
+      const colorOk = state.activeModifier === 'colorblind'
+        ? true
+        : (isRed(movingCard.suit) !== isRed(topCard.suit));
+
+      if (!colorOk) return false;
+
+      // 2. 點數規則檢查 (正常為遞減 1 點；若啟動「重力反轉」則允許遞減 1 或 遞增 1！)
+      if (state.activeModifier === 'gravity') {
+        return movingCard.rank === topCard.rank - 1 || movingCard.rank === topCard.rank + 1;
+      }
+      return movingCard.rank === topCard.rank - 1;
+    }
+
+    /* --------------------------------------------------------------------------
+       7. 歷史快照 (悔棋系統) 與步數事件處理 (魔法輪盤 & 炸彈倒數)
+       -------------------------------------------------------------------------- */
+    function saveSnapshot() {
+      const snap = JSON.stringify({
+        stock: state.stock,
+        waste: state.waste,
+        foundations: state.foundations,
+        tableau: state.tableau,
+        score: state.score,
+        coins: state.coins,
+        moves: state.moves
+      });
+      state.history.push(snap);
+      if (state.history.length > 40) state.history.shift();
+      document.getElementById('btn-undo').disabled = false;
+    }
+
+    function undoMove() {
+      if (state.history.length === 0) return;
+      const snap = JSON.parse(state.history.pop());
+      state.stock = snap.stock;
+      state.waste = snap.waste;
+      state.foundations = snap.foundations;
+      state.tableau = snap.tableau;
+      state.score = snap.score;
+      state.coins = snap.coins;
+      state.moves = snap.moves;
+      state.selected = null;
+      sfx.flip();
+      document.getElementById('btn-undo').disabled = state.history.length === 0;
+      renderAll();
+      updateHUD();
+      showToast('↩️ 已還原上一步操作');
+    }
+
+    function onPlayerMoveCompleted() {
+      state.moves++;
+
+      // 1. 處理魔法狂想模式或主動觸發的魔法規則倒數
+      if (state.modifierMovesLeft > 0) {
+        state.modifierMovesLeft--;
+        if (state.modifierMovesLeft === 0) {
+          state.activeModifier = null;
+          showToast('✨ 魔法規則效果已結束，恢復正常規則');
+        }
+        updateModifierBanner();
+      } else if (state.mode === 'chaos' && state.moves % 12 === 0) {
+        triggerMagicRoulette();
+      }
+
+      // 2. 處理拆彈專家模式：所有已翻開且在牌桌/棄牌堆的炸彈牌倒數 -1
+      if (state.mode === 'bomb') {
+        let explodedCards = [];
+        // 檢查棄牌堆頂部
+        if (state.waste.length > 0) {
+          const topW = state.waste[state.waste.length - 1];
+          if (topW.bombTimer !== null) {
+            topW.bombTimer--;
+            if (topW.bombTimer <= 0) {
+              explodedCards.push({ from: 'waste', card: state.waste.pop() });
+            }
+          }
+        }
+        // 檢查 7 欄已翻開的牌
+        for (let c = 0; c < 7; c++) {
+          for (let i = state.tableau[c].length - 1; i >= 0; i--) {
+            const card = state.tableau[c][i];
+            if (card.faceUp && card.bombTimer !== null) {
+              card.bombTimer--;
+              if (card.bombTimer <= 0) {
+                const removed = state.tableau[c].splice(i, 1)[0];
+                explodedCards.push({ from: 'tableau', card: removed });
+              }
+            }
+          }
+        }
+
+        if (explodedCards.length > 0) {
+          sfx.explosion();
+          explodedCards.forEach(item => {
+            item.card.faceUp = false;
+            item.card.bombTimer = 16; // 重置炸彈並炸回發牌堆
+            state.stock.unshift(item.card);
+          });
+          state.score = Math.max(0, state.score - 50 * explodedCards.length);
+          showToast(`💥 砰！${explodedCards.length} 張炸彈牌倒數歸零，被炸回發牌堆！`);
+        }
+      }
+
+      checkAutoCompleteAvailability();
+      checkVictoryCondition();
+      updateHUD();
+    }
+
+    /* --------------------------------------------------------------------------
+       8. 奇幻道具與魔法輪盤系統 (Quirky Skills & Modifiers)
+       -------------------------------------------------------------------------- */
+    function triggerMagicRoulette(isPaidSkill = false) {
+      if (isPaidSkill) {
+        if (state.coins < 15) {
+          sfx.error();
+          showToast('🪙 金幣不足！收牌可獲得更多金幣');
+          return;
+        }
+        state.coins -= 15;
+        updateHUD();
+      }
+
+      sfx.magic();
+      const events = ['colorblind', 'gravity', 'joker', 'xray'];
+      const pick = events[Math.floor(Math.random() * events.length)];
+
+      if (pick === 'colorblind') {
+        state.activeModifier = 'colorblind';
+        state.modifierMovesLeft = 8;
+        showToast('🌈 魔法觸發【色盲狂歡】：8 步內紅黑不限，點數遞減即可疊牌！');
+      } else if (pick === 'gravity') {
+        state.activeModifier = 'gravity';
+        state.modifierMovesLeft = 8;
+        showToast('🙃 魔法觸發【重力反轉】：8 步內可向上(+1)或向下(-1)疊牌！');
+      } else if (pick === 'joker') {
+        // 在棄牌堆頂端召喚一張萬能 Joker 牌
+        const jokerCard = {
+          id: `joker_${Date.now()}`,
+          suit: 0,
+          rank: 0,
+          faceUp: true,
+          isJoker: true,
+          bombTimer: null
+        };
+        state.waste.push(jokerCard);
+        renderAll();
+        showToast('🃏 奇蹟降臨！棄牌堆召喚了一張【萬能百搭 Joker】！');
+      } else if (pick === 'xray') {
+        activateXRayEffect(6000);
+        showToast('👁️ 魔法觸發【全場透視眼】：看穿所有底牌 6 秒！');
+      }
+      updateModifierBanner();
+    }
+
+    function activateXRayEffect(durationMs = 5000) {
+      document.querySelectorAll('.card.face-down').forEach(el => {
+        el.classList.add('xray-peek');
+        const label = el.querySelector('.xray-label');
+        if (label) label.style.display = 'flex';
+      });
+      if (state.xrayTimer) clearTimeout(state.xrayTimer);
+      state.xrayTimer = setTimeout(() => {
+        document.querySelectorAll('.card.face-down').forEach(el => {
+          el.classList.remove('xray-peek');
+          const label = el.querySelector('.xray-label');
+          if (label) label.style.display = 'none';
+        });
+      }, durationMs);
+    }
+
+    function useSkillXRay() {
+      if (state.coins < 15) {
+        sfx.error();
+        showToast('🪙 需要 15 金幣才能施放透視眼');
+        return;
+      }
+      state.coins -= 15;
+      updateHUD();
+      sfx.magic();
+      activateXRayEffect(5000);
+      showToast('👁️ 透視眼啟動！看穿所有牌背 5 秒');
+    }
+
+    function useSkillMagnet() {
+      if (state.coins < 25) {
+        sfx.error();
+        showToast('🪙 需要 25 金幣才能使用磁鐵吸牌');
+        return;
+      }
+
+      // 尋找全場（包括蓋住的牌！）第一張能直接飛入目標區的牌
+      for (let f = 0; f < 4; f++) {
+        const neededRank = state.foundations[f].length + 1;
+        if (neededRank > 13) continue;
+
+        // 1. 搜尋 7 欄
+        for (let c = 0; c < 7; c++) {
+          const idx = state.tableau[c].findIndex(card => !card.isJoker && card.suit === f && card.rank === neededRank);
+          if (idx !== -1) {
+            saveSnapshot();
+            state.coins -= 25;
+            const [pulled] = state.tableau[c].splice(idx, 1);
+            pulled.faceUp = true;
+            pulled.bombTimer = null;
+            state.foundations[f].push(pulled);
+            revealTopTableauCard(c);
+            state.score += 20;
+            sfx.foundation(3);
+            renderAll();
+            onPlayerMoveCompleted();
+            showToast(`🧲 磁鐵成功吸出【${SUITS[f].name}${RANKS[neededRank-1].label}】！`);
+            return;
+          }
+        }
+
+        // 2. 搜尋發牌堆與棄牌堆
+        for (const pileName of ['waste', 'stock']) {
+          const pile = state[pileName];
+          const idx = pile.findIndex(card => !card.isJoker && card.suit === f && card.rank === neededRank);
+          if (idx !== -1) {
+            saveSnapshot();
+            state.coins -= 25;
+            const [pulled] = pile.splice(idx, 1);
+            pulled.faceUp = true;
+            pulled.bombTimer = null;
+            state.foundations[f].push(pulled);
+            state.score += 20;
+            sfx.foundation(3);
+            renderAll();
+            onPlayerMoveCompleted();
+            showToast(`🧲 磁鐵從牌庫吸出【${SUITS[f].name}${RANKS[neededRank-1].label}】！`);
+            return;
+          }
+        }
+      }
+
+      sfx.error();
+      showToast('目前沒有可吸取的牌');
+    }
+
+    function toggleSkillSwap() {
+      if (state.swapMode) {
+        state.swapMode = false;
+        state.swapFirstCard = null;
+        document.getElementById('skill-swap').classList.remove('active-skill');
+        renderAll();
+        return;
+      }
+      if (state.coins < 20) {
+        sfx.error();
+        showToast('🪙 需要 20 金幣才能發動乾坤大挪移');
+        return;
+      }
+      state.selected = null;
+      state.swapMode = true;
+      state.swapFirstCard = null;
+      document.getElementById('skill-swap').classList.add('active-skill');
+      sfx.magic();
+      showToast('🌀 請點選接龍區任意【第一張已翻開的牌】');
+      renderAll();
+    }
+
+    function updateModifierBanner() {
+      const banner = document.getElementById('modifier-banner');
+      const textEl = document.getElementById('modifier-text');
+      const timerEl = document.getElementById('modifier-timer');
+
+      if (!state.activeModifier) {
+        banner.classList.remove('active');
+        return;
+      }
+      banner.classList.add('active');
+      if (state.activeModifier === 'colorblind') {
+        textEl.textContent = '🌈 色盲狂歡中：紅黑花色限制解除！';
+      } else if (state.activeModifier === 'gravity') {
+        textEl.textContent = '🙃 重力反轉中：可向上(+1)或向下(-1)疊牌！';
+      }
+      timerEl.textContent = `剩餘 ${state.modifierMovesLeft} 步`;
+    }
+
+    /* --------------------------------------------------------------------------
+       9. 核心移動邏輯 (發牌、翻牌、移動牌組、自動收牌)
+       -------------------------------------------------------------------------- */
+    function drawFromStock() {
+      state.selected = null;
+      saveSnapshot();
+
+      if (state.stock.length === 0) {
+        if (state.waste.length === 0) {
+          state.history.pop();
+          return;
+        }
+        // 將棄牌堆翻回發牌堆
+        while (state.waste.length > 0) {
+          const c = state.waste.pop();
+          c.faceUp = false;
+          state.stock.push(c);
+        }
+        sfx.flip();
+        renderAll();
+        onPlayerMoveCompleted();
+        return;
+      }
+
+      const drawCount = state.mode === 'classic3' ? 3 : 1;
+      for (let i = 0; i < drawCount && state.stock.length > 0; i++) {
+        const card = state.stock.pop();
+        card.faceUp = true;
+        state.waste.push(card);
+      }
+      sfx.flip();
+      renderAll();
+      onPlayerMoveCompleted();
+    }
+
+    function revealTopTableauCard(colIdx) {
+      const col = state.tableau[colIdx];
+      if (col.length > 0 && !col[col.length - 1].faceUp) {
+        col[col.length - 1].faceUp = true;
+        state.score += 10;
+        state.coins += 2;
+      }
+    }
+
+    function executeMove(from, to) {
+      // from: { source: 'waste' | 'tableau' | 'foundation', colIdx, cardIdx }
+      // to:   { target: 'foundation' | 'tableau', idx }
+      let movingCards = [];
+
+      if (from.source === 'waste') {
+        if (state.waste.length === 0) return false;
+        movingCards = [state.waste[state.waste.length - 1]];
+      } else if (from.source === 'foundation') {
+        const fPile = state.foundations[from.colIdx];
+        if (fPile.length === 0) return false;
+        movingCards = [fPile[fPile.length - 1]];
+      } else if (from.source === 'tableau') {
+        movingCards = state.tableau[from.colIdx].slice(from.cardIdx);
+      }
+
+      if (movingCards.length === 0) return false;
+      const leadCard = movingCards[0];
+
+      // 驗證目標合法性
+      if (to.target === 'foundation') {
+        if (movingCards.length !== 1) return false;
+        if (!canMoveToFoundation(leadCard, to.idx)) return false;
+      } else if (to.target === 'tableau') {
+        if (from.source === 'tableau' && from.colIdx === to.idx) return false;
+        if (!canMoveToTableau(leadCard, to.idx)) return false;
+      } else {
+        return false;
+      }
+
+      saveSnapshot();
+
+      // 從來源移除
+      if (from.source === 'waste') {
+        state.waste.pop();
+      } else if (from.source === 'foundation') {
+        state.foundations[from.colIdx].pop();
+      } else if (from.source === 'tableau') {
+        state.tableau[from.colIdx].splice(from.cardIdx);
+        revealTopTableauCard(from.colIdx);
+      }
+
+      // 加入目標並結算分數與金幣
+      if (to.target === 'foundation') {
+        leadCard.bombTimer = null; // 收入目標區即解除炸彈！
+        state.foundations[to.idx].push(leadCard);
+        state.foundationCombo++;
+        const coinReward = state.mode === 'classic3' ? 8 : 5;
+        state.coins += coinReward;
+        state.score += 15 + state.foundationCombo * 2;
+        sfx.foundation(state.foundationCombo);
+      } else if (to.target === 'tableau') {
+        state.foundationCombo = 0;
+        state.tableau[to.idx].push(...movingCards);
+        if (from.source === 'waste') state.score += 5;
+        sfx.place();
+      }
+
+      state.selected = null;
+      renderAll();
+      onPlayerMoveCompleted();
+      return true;
+    }
+
+    /**
+     * 嘗試將指定牌自動送入右上角對應的目標區
+     */
+    function tryAutoSendToFoundation(source, colIdx, cardIdx) {
+      let card = null;
+      if (source === 'waste' && state.waste.length > 0) {
+        card = state.waste[state.waste.length - 1];
+      } else if (source === 'tableau') {
+        const col = state.tableau[colIdx];
+        if (cardIdx === col.length - 1) card = col[cardIdx];
+      }
+      if (!card) return false;
+
+      for (let f = 0; f < 4; f++) {
+        if (canMoveToFoundation(card, f)) {
+          return executeMove({ source, colIdx, cardIdx }, { target: 'foundation', idx: f });
+        }
+      }
+      return false;
+    }
+
+    /**
+     * 檢查是否所有牌都已翻開（顯示「一鍵自動收牌」按鈕）
+     */
+    function checkAutoCompleteAvailability() {
+      const btnAuto = document.getElementById('btn-auto');
+      if (state.stock.length > 0 || state.waste.length > 0) {
+        btnAuto.style.display = 'none';
+        return;
+      }
+      const hasFaceDown = state.tableau.some(col => col.some(c => !c.faceUp));
+      btnAuto.style.display = (!hasFaceDown && !state.isVictory) ? 'inline-flex' : 'none';
+    }
+
+    function runAutoComplete() {
+      const step = () => {
+        if (state.isVictory) return;
+        let moved = false;
+        for (let c = 0; c < 7; c++) {
+          const col = state.tableau[c];
+          if (col.length > 0) {
+            if (tryAutoSendToFoundation('tableau', c, col.length - 1)) {
+              moved = true;
+              break;
+            }
+          }
+        }
+        if (moved) {
+          setTimeout(step, 85);
+        }
+      };
+      step();
+    }
+
+    /* --------------------------------------------------------------------------
+       10. 智能提示系統 (Hint Highlighter)
+       -------------------------------------------------------------------------- */
+    function showSmartHint() {
+      document.querySelectorAll('.hint-glow').forEach(el => el.classList.remove('hint-glow'));
+
+      // 1. 檢查棄牌堆頂牌能否入目標區或接龍區
+      if (state.waste.length > 0) {
+        const topW = state.waste[state.waste.length - 1];
+        for (let f = 0; f < 4; f++) {
+          if (canMoveToFoundation(topW, f)) {
+            highlightCardById(topW.id);
+            showToast('💡 提示：棄牌堆的牌可直接收入目標區！');
+            return;
+          }
+        }
+        for (let c = 0; c < 7; c++) {
+          if (canMoveToTableau(topW, c)) {
+            highlightCardById(topW.id);
+            showToast(`💡 提示：可將棄牌堆的牌移至第 ${c + 1} 欄`);
+            return;
+          }
+        }
+      }
+
+      // 2. 檢查各欄頂牌能否入目標區
+      for (let c = 0; c < 7; c++) {
+        const col = state.tableau[c];
+        if (col.length > 0) {
+          const topC = col[col.length - 1];
+          for (let f = 0; f < 4; f++) {
+            if (canMoveToFoundation(topC, f)) {
+              highlightCardById(topC.id);
+              showToast(`💡 提示：第 ${c + 1} 欄的牌可收入目標區！`);
+              return;
+            }
+          }
+        }
+      }
+
+      // 3. 檢查各欄可移動牌組能否翻開新底牌
+      for (let c = 0; c < 7; c++) {
+        const col = state.tableau[c];
+        const firstUpIdx = col.findIndex(card => card.faceUp);
+        if (firstUpIdx !== -1) {
+          const lead = col[firstUpIdx];
+          // 若是 K 且已經在欄位最底部 (firstUpIdx === 0)，無需移到另一個空欄
+          for (let targetC = 0; targetC < 7; targetC++) {
+            if (targetC === c) continue;
+            if (firstUpIdx === 0 && lead.rank === 13 && state.tableau[targetC].length === 0) continue;
+            if (canMoveToTableau(lead, targetC)) {
+              highlightCardById(lead.id);
+              showToast(`💡 提示：移動第 ${c + 1} 欄牌組至第 ${targetC + 1} 欄`);
+              return;
+            }
+          }
+        }
+      }
+
+      if (state.stock.length > 0) {
+        const stockEl = document.getElementById('slot-stock');
+        stockEl.classList.add('highlight-target');
+        setTimeout(() => stockEl.classList.remove('highlight-target'), 1600);
+        showToast('💡 提示：點擊左上角發牌堆翻新牌！');
+      } else {
+        showToast('💡 試試使用「乾坤大挪移」或「魔法輪盤」打破僵局！');
+      }
+    }
+
+    function highlightCardById(id) {
+      const el = document.querySelector(`.card[data-id="${id}"]`);
+      if (el) {
+        el.classList.add('hint-glow');
+        setTimeout(() => el.classList.remove('hint-glow'), 2200);
+      }
+    }
+
+    /* --------------------------------------------------------------------------
+       11. 渲染引擎 (DOM Rendering) 與跨裝置混合互動 (拖曳 + 點選)
+       -------------------------------------------------------------------------- */
+    function renderAll() {
+      // 1. 渲染發牌堆 (Stock)
+      const stockSlot = document.getElementById('slot-stock');
+      stockSlot.innerHTML = '';
+      if (state.stock.length > 0) {
+        const topStock = state.stock[state.stock.length - 1];
+        const cardEl = createCardDOM(topStock, 'stock', 0, state.stock.length - 1);
+        cardEl.style.top = '0px';
+        cardEl.style.left = '0px';
+        // 顯示剩餘張數徽章
+        const countTag = document.createElement('div');
+        countTag.style.cssText = 'position:absolute;bottom:4px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.65);color:#fff;font-size:10px;font-weight:800;padding:1px 6px;border-radius:99px;';
+        countTag.textContent = state.stock.length;
+        cardEl.appendChild(countTag);
+        stockSlot.appendChild(cardEl);
+      } else {
+        stockSlot.innerHTML = '<span style="font-size:22px;opacity:0.45;">🔄</span>';
+      }
+
+      // 2. 渲染棄牌堆 (Waste) - 抽3張模式時呈現扇形展開效果
+      const wasteSlot = document.getElementById('slot-waste');
+      wasteSlot.innerHTML = '';
+      if (state.waste.length > 0) {
+        const showCount = state.mode === 'classic3' ? Math.min(3, state.waste.length) : 1;
+        const startIdx = state.waste.length - showCount;
+        for (let i = startIdx; i < state.waste.length; i++) {
+          const card = state.waste[i];
+          const isTop = (i === state.waste.length - 1);
+          const cardEl = createCardDOM(card, 'waste', 0, i, isTop);
+          cardEl.style.top = '0px';
+          cardEl.style.left = `${(i - startIdx) * 14}px`;
+          cardEl.style.zIndex = i + 1;
+          wasteSlot.appendChild(cardEl);
+        }
+      }
+
+      // 3. 渲染 4 個目標收集區 (Foundations)
+      for (let f = 0; f < 4; f++) {
+        const fSlot = document.getElementById(`slot-f-${f}`);
+        fSlot.innerHTML = '';
+        const pile = state.foundations[f];
+        if (pile.length > 0) {
+          const topCard = pile[pile.length - 1];
+          const cardEl = createCardDOM(topCard, 'foundation', f, pile.length - 1, true);
+          cardEl.style.top = '0px';
+          cardEl.style.left = '0px';
+          fSlot.appendChild(cardEl);
+        }
+      }
+
+      // 4. 渲染 7 欄接龍區 (Tableau) - 智慧壓縮間距避免超出螢幕底部
+      const downOffset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--stack-offset-down')) || 16;
+      const baseUpOffset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--stack-offset-up')) || 26;
+      const tableauHeight = document.getElementById('tableau-row').clientHeight || 420;
+      const cardH = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--card-h')) || 110;
+
+      for (let c = 0; c < 7; c++) {
+        const colEl = document.getElementById(`col-${c}`);
+        // 保留底座 K
+        const baseEl = colEl.querySelector('.empty-col-base');
+        colEl.innerHTML = '';
+        colEl.appendChild(baseEl);
+
+        const colCards = state.tableau[c];
+        // 若牌疊太長，自動微調翻開牌間距使其保持在可視範圍內
+        let upOffset = baseUpOffset;
+        const estimatedTotal = colCards.length * baseUpOffset + cardH;
+        if (estimatedTotal > tableauHeight && colCards.length > 1) {
+          upOffset = Math.max(16, Math.floor((tableauHeight - cardH - 10) / colCards.length));
+        }
+
+        let currentTop = 0;
+        colCards.forEach((card, idx) => {
+          const cardEl = createCardDOM(card, 'tableau', c, idx, card.faceUp);
+          cardEl.style.top = `${currentTop}px`;
+          cardEl.style.left = '0px';
+          cardEl.style.zIndex = idx + 1;
+          colEl.appendChild(cardEl);
+
+          currentTop += card.faceUp ? upOffset : downOffset;
+        });
+      }
+    }
+
+    /**
+     * 建立單張撲克牌 DOM 並綁定跨裝置 Pointer Drag & Tap 事件
+     */
+    function createCardDOM(card, source, colIdx, cardIdx, interactable = false) {
+      const el = document.createElement('div');
+      el.className = `card ${card.faceUp ? 'face-up' : 'face-down'} ${card.isJoker ? 'is-joker' : ''}`;
+      el.dataset.id = card.id;
+
+      // 檢查是否為當前點選高亮牌組
+      if (state.selected && state.selected.source === source && state.selected.colIdx === colIdx && cardIdx >= state.selected.cardIdx) {
+        el.classList.add('selected');
+      }
+
+      // 檢查是否為乾坤大挪移第一張已選牌
+      if (state.swapMode && state.swapFirstCard && state.swapFirstCard.colIdx === colIdx && state.swapFirstCard.cardIdx === cardIdx) {
+        el.classList.add('swap-candidate');
+      }
+
+      if (card.faceUp) {
+        el.innerHTML = buildCardFaceSVG(card);
+        if (card.bombTimer !== null) {
+          const bomb = document.createElement('div');
+          bomb.className = 'bomb-badge';
+          bomb.innerHTML = `💣${card.bombTimer}`;
+          el.appendChild(bomb);
+        }
+      } else {
+        // 預先埋入透視眼標籤
+        const xray = document.createElement('div');
+        xray.className = 'xray-label';
+        xray.style.display = 'none';
+        const suit = SUITS[card.suit];
+        xray.style.color = suit.color === 'red' ? '#f87171' : '#38bdf8';
+        xray.innerHTML = `<span>${RANKS[card.rank - 1].label}</span><span>${suit.symbol}</span>`;
+        el.appendChild(xray);
+      }
+
+      if (interactable && source !== 'stock') {
+        attachCardInteractions(el, card, source, colIdx, cardIdx);
+      }
+
+      return el;
+    }
+
+    /**
+     * 同時支援流暢 Pointer 拖曳 (滑鼠 & 手指觸控) 與 點選移動 / 雙擊收牌
+     */
+    function attachCardInteractions(el, card, source, colIdx, cardIdx) {
+      let startX = 0, startY = 0;
+      let isDragging = false;
+      let dragGroupEls = [];
+      let initialRects = [];
+
+      el.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0 && e.pointerType === 'mouse') return;
+        e.stopPropagation();
+
+        // 若處於「乾坤大挪移」技能模式
+        if (state.swapMode) {
+          handleSwapSelection(source, colIdx, cardIdx);
+          return;
+        }
+
+        startX = e.clientX;
+        startY = e.clientY;
+        isDragging = false;
+        el.setPointerCapture(e.pointerId);
+
+        // 收集一同被拖動的牌組 (接龍欄中從該張牌往下的所有牌)
+        dragGroupEls = [el];
+        if (source === 'tableau') {
+          const colEl = document.getElementById(`col-${colIdx}`);
+          const allCardsInCol = Array.from(colEl.querySelectorAll('.card'));
+          dragGroupEls = allCardsInCol.slice(cardIdx);
+        }
+        initialRects = dragGroupEls.map(node => ({
+          top: parseFloat(node.style.top || '0'),
+          left: parseFloat(node.style.left || '0'),
+          zIndex: node.style.zIndex
+        }));
+      });
+
+      el.addEventListener('pointermove', (e) => {
+        if (!el.hasPointerCapture(e.pointerId)) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        if (!isDragging && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+          isDragging = true;
+          state.selected = null;
+          dragGroupEls.forEach((node, idx) => {
+            node.classList.add('dragging');
+            node.style.zIndex = 9000 + idx;
+          });
+        }
+
+        if (isDragging) {
+          dragGroupEls.forEach((node, idx) => {
+            node.style.transform = `translate(${dx}px, ${dy}px)`;
+          });
+        }
+      });
+
+      el.addEventListener('pointerup', (e) => {
+        if (!el.hasPointerCapture(e.pointerId)) return;
+        el.releasePointerCapture(e.pointerId);
+
+        if (isDragging) {
+          dragGroupEls.forEach((node, idx) => {
+            node.classList.remove('dragging');
+            node.style.transform = '';
+            node.style.zIndex = initialRects[idx].zIndex;
+          });
+
+          // 偵測放開位置下方的目標區或接龍欄
+          const dropTarget = detectDropTarget(e.clientX, e.clientY);
+          if (dropTarget) {
+            const success = executeMove({ source, colIdx, cardIdx }, dropTarget);
+            if (!success) {
+              sfx.error();
+              renderAll();
+            }
+          } else {
+            renderAll();
+          }
+        } else {
+          // 視為點擊 (Tap / Click)
+          handleCardTap(source, colIdx, cardIdx);
+        }
+      });
+    }
+
+    function detectDropTarget(clientX, clientY) {
+      // 1. 檢查 4 個目標區
+      for (let f = 0; f < 4; f++) {
+        const rect = document.getElementById(`slot-f-${f}`).getBoundingClientRect();
+        if (clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom) {
+          return { target: 'foundation', idx: f };
+        }
+      }
+      // 2. 檢查 7 欄接龍區 (允許整條垂直高度命中)
+      for (let c = 0; c < 7; c++) {
+        const rect = document.getElementById(`col-${c}`).getBoundingClientRect();
+        if (clientX >= rect.left - 4 && clientX <= rect.right + 4 && clientY >= rect.top - 10) {
+          return { target: 'tableau', idx: c };
+        }
+      }
+      return null;
+    }
+
+    function handleCardTap(source, colIdx, cardIdx) {
+      // 若已經有選中的牌
+      if (state.selected) {
+        const sel = state.selected;
+        // 再次點擊同一張牌 -> 自動嘗試送往右上角目標區！
+        if (sel.source === source && sel.colIdx === colIdx && sel.cardIdx === cardIdx) {
+          state.selected = null;
+          if (!tryAutoSendToFoundation(source, colIdx, cardIdx)) {
+            renderAll();
+          }
+          return;
+        }
+
+        // 點擊了另一張牌作為目標位置
+        if (source === 'foundation') {
+          if (executeMove(sel, { target: 'foundation', idx: colIdx })) return;
+        } else if (source === 'tableau') {
+          if (executeMove(sel, { target: 'tableau', idx: colIdx })) return;
+        }
+      }
+
+      // 否則選中當前點擊的牌
+      state.selected = { source, colIdx, cardIdx };
+      sfx.flip();
+      renderAll();
+    }
+
+    function handleSwapSelection(source, colIdx, cardIdx) {
+      if (source !== 'tableau') {
+        showToast('⚠️ 乾坤大挪移只能交換下方 7 欄接龍區的牌喔！');
+        return;
+      }
+      if (!state.swapFirstCard) {
+        state.swapFirstCard = { colIdx, cardIdx };
+        sfx.flip();
+        showToast('🌀 已選第一張牌，請再點選【第二張已翻開的牌】進行互換！');
+        renderAll();
+      } else {
+        const first = state.swapFirstCard;
+        if (first.colIdx === colIdx && first.cardIdx === cardIdx) {
+          state.swapFirstCard = null;
+          renderAll();
+          return;
+        }
+        saveSnapshot();
+        state.coins -= 20;
+        const cardA = state.tableau[first.colIdx][first.cardIdx];
+        const cardB = state.tableau[colIdx][cardIdx];
+        state.tableau[first.colIdx][first.cardIdx] = cardB;
+        state.tableau[colIdx][cardIdx] = cardA;
+
+        state.swapMode = false;
+        state.swapFirstCard = null;
+        document.getElementById('skill-swap').classList.remove('active-skill');
+        sfx.magic();
+        renderAll();
+        onPlayerMoveCompleted();
+        showToast('✨ 乾坤大挪移成功！兩張牌已互換位置！');
+      }
+    }
+
+    /* --------------------------------------------------------------------------
+       12. 勝利判定、本地戰績儲存與經典撲克牌彈跳瀑布特效
+       -------------------------------------------------------------------------- */
+    function checkVictoryCondition() {
+      const totalInFoundations = state.foundations.reduce((sum, pile) => sum + pile.length, 0);
+      if (totalInFoundations === 52 && !state.isVictory) {
+        state.isVictory = true;
+        clearInterval(state.timerInterval);
+        sfx.win();
+        saveVictoryStats();
+        startVictoryWaterfall();
+
+        const timeStr = formatTime(state.seconds);
+        document.getElementById('victory-stats-text').innerHTML =
+          `模式：<strong>${MODE_LABELS[state.mode]}</strong><br>` +
+          `最終得分：<strong style="color:var(--gold);">${state.score} 分</strong> | 總步數：<strong>${state.moves} 步</strong><br>` +
+          `通關耗時：<strong>${timeStr}</strong>`;
+
+        setTimeout(() => {
+          document.getElementById('modal-victory').classList.add('open');
+        }, 1200);
+      }
+    }
+
+    function saveVictoryStats() {
+      try {
+        const raw = localStorage.getItem('mystic_solitaire_stats');
+        const stats = raw ? JSON.parse(raw) : { wins: 0, bestScore: 0, bestTime: null };
+        stats.wins += 1;
+        if (state.score > stats.bestScore) stats.bestScore = state.score;
+        if (stats.bestTime === null || state.seconds < stats.bestTime) stats.bestTime = state.seconds;
+        localStorage.setItem('mystic_solitaire_stats', JSON.stringify(stats));
+      } catch (e) {}
+    }
+
+    function loadStatsSummary() {
+      try {
+        const raw = localStorage.getItem('mystic_solitaire_stats');
+        const stats = raw ? JSON.parse(raw) : { wins: 0, bestScore: 0, bestTime: null };
+        const timeStr = stats.bestTime !== null ? formatTime(stats.bestTime) : '--:--';
+        document.getElementById('stats-summary').textContent =
+          `勝場：${stats.wins} 場 | 最高分：${stats.bestScore} | 最快通關：${timeStr}`;
+      } catch (e) {}
+    }
+
+    let victoryAnimFrame = null;
+
+    function startVictoryWaterfall() {
+      const canvas = document.getElementById('victory-canvas');
+      const ctx = canvas.getContext('2d');
+      canvas.style.display = 'block';
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+
+      const bouncingCards = [];
+      let spawnIdx = 51;
+
+      const spawnTimer = setInterval(() => {
+        if (spawnIdx < 0 || !state.isVictory) {
+          clearInterval(spawnTimer);
+          return;
+        }
+        const fIdx = spawnIdx % 4;
+        const rank = Math.floor(spawnIdx / 4) + 1;
+        const slotRect = document.getElementById(`slot-f-${fIdx}`).getBoundingClientRect();
+
+        bouncingCards.push({
+          x: slotRect.left,
+          y: slotRect.top,
+          w: slotRect.width,
+          h: slotRect.height,
+          vx: (Math.random() - 0.5) * 9 - 2.5,
+          vy: -Math.random() * 5 - 2,
+          suit: SUITS[fIdx],
+          rankLabel: RANKS[rank - 1].label
+        });
+        spawnIdx--;
+      }, 90);
+
+      function renderLoop() {
+        if (!state.isVictory) return;
+        for (let i = bouncingCards.length - 1; i >= 0; i--) {
+          const c = bouncingCards[i];
+          c.x += c.vx;
+          c.y += c.vy;
+          c.vy += 0.45; // 重力加速度
+
+          if (c.y + c.h > canvas.height) {
+            c.y = canvas.height - c.h;
+            c.vy = -c.vy * 0.82;
+          }
+
+          // 繪製經典殘影撲克牌
+          ctx.fillStyle = '#ffffff';
+          ctx.strokeStyle = '#94a3b8';
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.roundRect(c.x, c.y, c.w, c.h, 8);
+          ctx.fill();
+          ctx.stroke();
+
+          ctx.fillStyle = c.suit.hex;
+          ctx.font = `bold ${Math.round(c.w * 0.24)}px Arial`;
+          ctx.fillText(`${c.rankLabel}${c.suit.symbol}`, c.x + 8, c.y + Math.round(c.w * 0.28));
+          ctx.font = `${Math.round(c.w * 0.45)}px Arial`;
+          ctx.fillText(c.suit.symbol, c.x + c.w * 0.28, c.y + c.h * 0.65);
+
+          if (c.x < -c.w || c.x > canvas.width + c.w) {
+            bouncingCards.splice(i, 1);
+          }
+        }
+        victoryAnimFrame = requestAnimationFrame(renderLoop);
+      }
+      renderLoop();
+    }
+
+    function stopVictoryAnimation() {
+      state.isVictory = false;
+      if (victoryAnimFrame) cancelAnimationFrame(victoryAnimFrame);
+      const canvas = document.getElementById('victory-canvas');
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      canvas.style.display = 'none';
+    }
+
+    /* --------------------------------------------------------------------------
+       13. UI 輔助與事件綁定
+       -------------------------------------------------------------------------- */
+    function formatTime(sec) {
+      const m = String(Math.floor(sec / 60)).padStart(2, '0');
+      const s = String(sec % 60).padStart(2, '0');
+      return `${m}:${s}`;
+    }
+
+    function updateHUD() {
+      document.getElementById('ui-coins').textContent = state.coins;
+      document.getElementById('ui-score').textContent = state.score;
+      document.getElementById('ui-moves').textContent = state.moves;
+      document.getElementById('ui-timer').textContent = formatTime(state.seconds);
+    }
+
+    let toastTimeout = null;
+    function showToast(msg) {
+      const el = document.getElementById('toast-msg');
+      el.textContent = msg;
+      el.classList.add('show');
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => el.classList.remove('show'), 2800);
+    }
+
+    // 綁定控制按鈕與空槽位點擊事件
+    window.addEventListener('DOMContentLoaded', () => {
+      updateResponsiveCardMetrics();
+
+      // 發牌堆點擊
+      document.getElementById('slot-stock').addEventListener('click', drawFromStock);
+
+      // 空目標槽位點擊 (配合點選移動模式)
+      for (let f = 0; f < 4; f++) {
+        document.getElementById(`slot-f-${f}`).addEventListener('click', () => {
+          if (state.selected) {
+            executeMove(state.selected, { target: 'foundation', idx: f });
+          }
+        });
+      }
+
+      // 空接龍欄點擊 (放置 K 或 萬能 Joker)
+      for (let c = 0; c < 7; c++) {
+        document.getElementById(`col-${c}`).addEventListener('click', (e) => {
+          if (state.selected && state.tableau[c].length === 0) {
+            executeMove(state.selected, { target: 'tableau', idx: c });
+          }
+        });
+      }
+
+      // 頂部與底部工具列按鈕
+      document.getElementById('btn-undo').addEventListener('click', undoMove);
+      document.getElementById('btn-hint').addEventListener('click', showSmartHint);
+      document.getElementById('btn-auto').addEventListener('click', runAutoComplete);
+
+      document.getElementById('skill-xray').addEventListener('click', useSkillXRay);
+      document.getElementById('skill-magnet').addEventListener('click', useSkillMagnet);
+      document.getElementById('skill-swap').addEventListener('click', toggleSkillSwap);
+      document.getElementById('skill-roulette').addEventListener('click', () => triggerMagicRoulette(true));
+
+      document.getElementById('btn-sound').addEventListener('click', (e) => {
+        sfx.muted = !sfx.muted;
+        e.currentTarget.textContent = sfx.muted ? '🔇' : '🔊';
+        showToast(sfx.muted ? '🔇 音效已靜音' : '🔊 音效已開啟');
+      });
+
+      // 模式與主題選擇視窗
+      const setupModal = document.getElementById('modal-setup');
+      let pendingMode = state.mode;
+      let pendingTheme = state.theme;
+
+      document.getElementById('btn-new-game').addEventListener('click', () => {
+        setupModal.classList.add('open');
+      });
+      document.getElementById('btn-close-setup').addEventListener('click', () => {
+        setupModal.classList.remove('open');
+      });
+
+      document.querySelectorAll('#mode-list .mode-option').forEach(opt => {
+        opt.addEventListener('click', () => {
+          document.querySelectorAll('#mode-list .mode-option').forEach(o => o.classList.remove('selected'));
+          opt.classList.add('selected');
+          pendingMode = opt.dataset.mode;
+        });
+      });
+
+      document.querySelectorAll('#theme-list .theme-chip').forEach(chip => {
+        chip.addEventListener('click', () => {
+          document.querySelectorAll('#theme-list .theme-chip').forEach(c => c.classList.remove('selected'));
+          chip.classList.add('selected');
+          pendingTheme = chip.dataset.theme;
+          document.body.className = pendingTheme === 'default' ? '' : `theme-${pendingTheme}`;
+          state.theme = pendingTheme;
+        });
+      });
+
+      document.getElementById('btn-start-selected').addEventListener('click', () => {
+        setupModal.classList.remove('open');
+        startNewGame(pendingMode);
+      });
+
+      // 規則視窗
+      const rulesModal = document.getElementById('modal-rules');
+      document.getElementById('btn-rules').addEventListener('click', () => {
+        loadStatsSummary();
+        rulesModal.classList.add('open');
+      });
+      document.getElementById('btn-close-rules').addEventListener('click', () => {
+        rulesModal.classList.remove('open');
+      });
+
+      // 勝利重玩按鈕
+      document.getElementById('btn-victory-new').addEventListener('click', () => {
+        document.getElementById('modal-victory').classList.remove('open');
+        startNewGame(state.mode);
+      });
+
+      // 啟動第一局遊戲
+      startNewGame('classic1');
+    });
+  </script>
+</body>
+</html>
